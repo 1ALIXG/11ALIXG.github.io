@@ -1,0 +1,6 @@
+{
+  "name": "سينما درايف — CinemaDrive",
+  "description": "واجهة بث سينمائية مستوحاة من نتفلكس لتشغيل ومشاركة مجلدات المسلسلات والحلقات مباشرة من Google Drive.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
