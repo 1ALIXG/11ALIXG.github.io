@@ -6,6 +6,8 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // Relative base ensures assets work on both custom domains and username.github.io/repo-name/
+    base: './',
     plugins: [
       react(),
       tailwindcss(),

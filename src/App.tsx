@@ -8,9 +8,8 @@ import { User } from 'firebase/auth';
 import { Loader2, Share2 } from 'lucide-react';
 import { DriveLibrary } from './components/DriveLibrary';
 import { EpisodePlayerModal } from './components/EpisodePlayerModal';
-import { GoogleSignInButton } from './components/GoogleSignInButton';
 import { SeriesShowcase } from './components/SeriesShowcase';
-import { buildWatchShareUrl, ShareModal } from './components/ShareModal';
+import { ShareModal } from './components/ShareModal';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import {
   clearCachedToken,
@@ -18,11 +17,12 @@ import {
   initAuth,
   logout,
 } from './lib/auth';
+import { loadSeriesFromFolder } from './lib/drive';
 import {
-  loadPublicSeriesFromFolder,
-  loadSeriesFromFolder,
-  PublicFolderPrivateError,
-} from './lib/drive';
+  decodeSeriesFromHashToken,
+  expandCompactPayload,
+  fetchPublishedSeriesJson,
+} from './lib/shareCodec';
 import {
   getAllWatchProgress,
   getRecentSeries,
@@ -39,92 +39,29 @@ import {
   WatchProgressEntry,
 } from './types';
 
-function readUrlState(): {
-  folderId: string | null;
-  episodeId: string | null;
-  isViewerLink: boolean;
-  customization: SeriesCustomization;
-} {
-  const params = new URLSearchParams(window.location.search);
-  const watchId = params.get('watch');
-  const folderId = watchId || params.get('folder');
-
-  return {
-    folderId,
-    episodeId: params.get('ep'),
-    isViewerLink: Boolean(watchId),
-    customization: {
-      title: params.get('t') || undefined,
-      description: params.get('d') || undefined,
-      genre: params.get('g') || undefined,
-      year: params.get('y') || undefined,
-      coverUrl: params.get('c') || undefined,
-    },
-  };
-}
-
-function updateAddressBar(
-  folderId: string | null,
-  isViewerMode: boolean,
-  customization: SeriesCustomization,
-  episodeId?: string | null
-) {
-  if (!folderId) {
-    const url = new URL(window.location.href);
-    url.search = '';
-    window.history.replaceState({}, '', url.toString());
-    return;
-  }
-
-  if (isViewerMode) {
-    const watchUrl = buildWatchShareUrl(folderId, customization, episodeId);
-    window.history.replaceState({}, '', watchUrl);
-    return;
-  }
-
-  const url = new URL(window.location.href);
-  url.search = '';
-  url.searchParams.set('folder', folderId);
-  if (episodeId) url.searchParams.set('ep', episodeId);
-  if (customization.title?.trim()) url.searchParams.set('t', customization.title.trim());
-  if (customization.description?.trim()) url.searchParams.set('d', customization.description.trim());
-  if (customization.genre?.trim()) url.searchParams.set('g', customization.genre.trim());
-  if (customization.year?.trim()) url.searchParams.set('y', customization.year.trim());
-  if (customization.coverUrl?.trim()) url.searchParams.set('c', customization.coverUrl.trim());
-  window.history.replaceState({}, '', url.toString());
+function extractWatchTokenFromHash(): string | null {
+  const hash = window.location.hash || '';
+  const match = hash.match(/[#&]watch=([^&]+)/);
+  if (match?.[1]) return decodeURIComponent(match[1]);
+  return null;
 }
 
 export default function App() {
-  const initialState = readUrlState();
-
+  const [booting, setBooting] = useState(true);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
 
-  const [pendingFolderId, setPendingFolderId] = useState<string | null>(
-    initialState.folderId
-  );
-  const [pendingEpisodeId, setPendingEpisodeId] = useState<string | null>(
-    initialState.episodeId
-  );
-  const [isViewerMode, setIsViewerMode] = useState<boolean>(
-    initialState.isViewerLink
-  );
-  const [customization, setCustomization] = useState<SeriesCustomization>(
-    initialState.customization
-  );
-
-  const [view, setView] = useState<'home' | 'library' | 'series'>(
-    initialState.folderId ? 'series' : 'home'
-  );
+  const [isViewerMode, setIsViewerMode] = useState(false);
+  const [customization, setCustomization] = useState<SeriesCustomization>({});
+  const [view, setView] = useState<'home' | 'library' | 'series'>('home');
   const [libraryTab, setLibraryTab] = useState<'my-drive' | 'shared'>('my-drive');
 
   const [series, setSeries] = useState<SeriesData | null>(null);
-  const [seriesLoading, setSeriesLoading] = useState(Boolean(initialState.folderId));
+  const [seriesLoading, setSeriesLoading] = useState(false);
   const [seriesError, setSeriesError] = useState<string | null>(null);
-  const [requiresSignInForPrivateFolder, setRequiresSignInForPrivateFolder] =
-    useState(false);
+  const [pendingFolderId, setPendingFolderId] = useState<string | null>(null);
 
   const [activeEpisode, setActiveEpisode] = useState<Episode | null>(null);
   const [shareTarget, setShareTarget] = useState<{
@@ -139,6 +76,7 @@ export default function App() {
     getRecentSeries()
   );
 
+  // 1. Initialize Firebase Auth listener (for optional Google Drive folder import)
   useEffect(() => {
     const unsubscribe = initAuth(
       (signedInUser, token) => {
@@ -152,108 +90,105 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // 2. Load self-contained #watch= link OR published ./series.json on GitHub Pages
+  const loadFromHashOrPublishedJson = useCallback(async () => {
+    const hashToken = extractWatchTokenFromHash();
+    if (hashToken) {
+      const payload = await decodeSeriesFromHashToken(hashToken);
+      if (payload) {
+        const expanded = expandCompactPayload(payload);
+        setSeries(expanded.series);
+        setCustomization(expanded.customization);
+        setIsViewerMode(true);
+        setView('series');
+        setSeriesError(null);
+        if (expanded.initialEpisodeId) {
+          const ep = expanded.series.seasons
+            .flatMap((s) => s.episodes)
+            .find((e) => e.id === expanded.initialEpisodeId);
+          if (ep) setActiveEpisode(ep);
+        }
+        setBooting(false);
+        return;
+      }
+    }
+
+    // Check if the owner published a permanent public/series.json on their GitHub Pages domain
+    const published = await fetchPublishedSeriesJson();
+    if (published?.published && published.series) {
+      const expanded = expandCompactPayload(published.series);
+      setSeries(expanded.series);
+      setCustomization(expanded.customization);
+      setIsViewerMode(true);
+      setView('series');
+      setSeriesError(null);
+      setBooting(false);
+      return;
+    }
+
+    setBooting(false);
+  }, []);
+
+  useEffect(() => {
+    loadFromHashOrPublishedJson();
+    const onHashChange = () => {
+      if (extractWatchTokenFromHash()) {
+        loadFromHashOrPublishedJson();
+      }
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [loadFromHashOrPublishedJson]);
+
   const handleAuthExpired = useCallback(() => {
     clearCachedToken();
     setAccessToken(null);
     setAuthError('انتهت جلسة Google Drive. يرجى تسجيل الدخول مجدداً للمتابعة.');
   }, []);
 
-  const openSeriesFolder = useCallback(
-    async (
-      folderId: string,
-      options?: {
-        tokenOverride?: string | null;
-        targetEpisodeId?: string | null;
-        viewerMode?: boolean;
-        keepCustomization?: boolean;
+  const openDriveFolder = useCallback(
+    async (folderId: string, tokenOverride?: string) => {
+      const token = tokenOverride || accessToken;
+      if (!token) {
+        setPendingFolderId(folderId);
+        return;
       }
-    ) => {
-      const token = options?.tokenOverride !== undefined ? options.tokenOverride : accessToken;
-      const nextViewer = options?.viewerMode ?? isViewerMode;
-      const nextCustomization = options?.keepCustomization ? customization : {};
 
-      if (!options?.keepCustomization) {
-        setCustomization({});
-      }
-      setIsViewerMode(nextViewer);
+      setIsViewerMode(false);
+      setCustomization({});
       setView('series');
       setSeriesLoading(true);
       setSeriesError(null);
-      setRequiresSignInForPrivateFolder(false);
       setPendingFolderId(folderId);
-      updateAddressBar(folderId, nextViewer, nextCustomization, options?.targetEpisodeId || null);
 
       try {
-        let loaded: SeriesData;
-
-        if (token) {
-          // Signed-in user gets full Drive API metadata (durations, exact resolutions, sharing status)
-          try {
-            loaded = await loadSeriesFromFolder(token, folderId);
-          } catch (authErr: any) {
-            if (authErr?.name === 'DriveAuthExpiredError') {
-              // Fallback cleanly to public folder reader before forcing re-login
-              clearCachedToken();
-              setAccessToken(null);
-              loaded = await loadPublicSeriesFromFolder(folderId);
-            } else {
-              throw authErr;
-            }
-          }
-        } else {
-          // Zero-login public Google Drive folder reader!
-          loaded = await loadPublicSeriesFromFolder(folderId);
-        }
-
+        const loaded = await loadSeriesFromFolder(token, folderId);
         setSeries(loaded);
         setRecentSeries(
           recordRecentSeries({
             id: loaded.id,
-            name: nextCustomization.title || loaded.name,
+            name: loaded.name,
             totalEpisodes: loaded.totalEpisodes,
             seasonsCount: loaded.seasons.length,
             lastOpenedAt: Date.now(),
           })
         );
-
-        if (options?.targetEpisodeId) {
-          const matchedEp = loaded.seasons
-            .flatMap((s) => s.episodes)
-            .find((e) => e.id === options.targetEpisodeId);
-          if (matchedEp) {
-            setActiveEpisode(matchedEp);
-          }
-          setPendingEpisodeId(null);
-        }
       } catch (err: any) {
-        setSeries(null);
-        if (err instanceof PublicFolderPrivateError) {
-          setRequiresSignInForPrivateFolder(true);
-          setSeriesError(err.message);
-        } else {
-          setSeriesError(
-            err?.message || 'تعذّر فتح مجلد المسلسل من Google Drive.'
-          );
+        if (err?.name === 'DriveAuthExpiredError') {
+          handleAuthExpired();
+          setView('home');
+          return;
         }
+        setSeries(null);
+        setSeriesError(
+          err?.message || 'تعذّر فتح مجلد المسلسل من Google Drive.'
+        );
       } finally {
         setSeriesLoading(false);
       }
     },
-    [accessToken, isViewerMode, customization]
+    [accessToken, handleAuthExpired]
   );
-
-  // Auto-load initial ?watch=... or ?folder=... immediately with ZERO login!
-  useEffect(() => {
-    if (initialState.folderId) {
-      openSeriesFolder(initialState.folderId, {
-        tokenOverride: null,
-        targetEpisodeId: initialState.episodeId,
-        viewerMode: initialState.isViewerLink,
-        keepCustomization: true,
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
@@ -263,23 +198,23 @@ export default function App() {
       if (result) {
         setUser(result.user);
         setAccessToken(result.accessToken);
-        if (pendingFolderId && (requiresSignInForPrivateFolder || view === 'series')) {
-          openSeriesFolder(pendingFolderId, {
-            tokenOverride: result.accessToken,
-            targetEpisodeId: pendingEpisodeId,
-            viewerMode: isViewerMode,
-            keepCustomization: true,
-          });
+        if (pendingFolderId) {
+          openDriveFolder(pendingFolderId, result.accessToken);
         } else {
+          setIsViewerMode(false);
           setView('library');
         }
       }
     } catch (err: any) {
       if (err?.code === 'auth/popup-closed-by-user') {
         setAuthError('تم إغلاق نافذة تسجيل الدخول قبل إتمام العملية.');
+      } else if (err?.code === 'auth/unauthorized-domain') {
+        setAuthError(
+          'هذا الدومين غير مضاف بعد في Firebase Authorized Domains. يمكنك استخدام تبويب «لصق روابط الحلقات» مباشرة بدون تسجيل دخول!'
+        );
       } else {
         setAuthError(
-          err?.message || 'تعذّر تسجيل الدخول بحساب Google. حاول مرة أخرى.'
+          err?.message || 'تعذّر تسجيل الدخول بحساب Google. يمكنك استخدام لصق روابط الحلقات بدون تسجيل دخول.'
         );
       }
     } finally {
@@ -295,21 +230,21 @@ export default function App() {
     setActiveEpisode(null);
     setIsViewerMode(false);
     setView('home');
-    updateAddressBar(null, false, {});
-  };
-
-  const handlePlayEpisode = (episode: Episode) => {
-    setActiveEpisode(episode);
-    if (series) {
-      updateAddressBar(series.id, isViewerMode, customization, episode.id);
+    if (window.location.hash) {
+      window.history.replaceState({}, '', window.location.pathname);
     }
   };
 
-  const handleClosePlayer = () => {
-    setActiveEpisode(null);
-    if (series) {
-      updateAddressBar(series.id, isViewerMode, customization, null);
-    }
+  const handleCreateManualSeries = (
+    builtSeries: SeriesData,
+    builtCustomization: SeriesCustomization
+  ) => {
+    setSeries(builtSeries);
+    setCustomization(builtCustomization);
+    setIsViewerMode(false);
+    setSeriesError(null);
+    setView('series');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleUpdateProgress = (
@@ -344,7 +279,6 @@ export default function App() {
       setView('library');
     } else {
       setView('home');
-      updateAddressBar(null, false, {});
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -355,27 +289,26 @@ export default function App() {
     setSeriesError(null);
     setPendingFolderId(null);
     setView('home');
-    updateAddressBar(null, false, {});
-  };
-
-  const handleUpdateCustomization = (next: SeriesCustomization) => {
-    setCustomization(next);
-    if (series) {
-      updateAddressBar(series.id, isViewerMode, next, activeEpisode?.id || null);
+    if (window.location.hash) {
+      window.history.replaceState({}, '', window.location.pathname);
     }
   };
+
+  if (booting) {
+    return (
+      <div className="min-h-screen bg-[#0A0A0C] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-[#E50914]" />
+      </div>
+    );
+  }
 
   if (view === 'home') {
     return (
       <WelcomeScreen
-        onOpenPublicLink={(folderId) =>
-          openSeriesFolder(folderId, { viewerMode: false, keepCustomization: false })
-        }
         onSignIn={handleLogin}
         isSigningIn={isLoggingIn}
         errorMessage={authError}
-        recentSeries={recentSeries}
-        onRemoveRecent={(id) => setRecentSeries(removeRecentSeries(id))}
+        onCreateManualSeries={handleCreateManualSeries}
       />
     );
   }
@@ -419,13 +352,6 @@ export default function App() {
               >
                 الحلقات
               </a>
-              <button
-                type="button"
-                onClick={() => setIsViewerMode(false)}
-                className="hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                تعديل الواجهة
-              </button>
             </nav>
           ) : (
             <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-[#A1A1AA]">
@@ -445,9 +371,9 @@ export default function App() {
                 onClick={handleGoHome}
                 className="hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
-                رابط جديد
+                مسلسل جديد
               </button>
-              {accessToken ? (
+              {accessToken && (
                 <>
                   <button
                     type="button"
@@ -472,14 +398,6 @@ export default function App() {
                     المشتركة معي
                   </button>
                 </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleLogin}
-                  className="hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  تصفّح مجلداتي
-                </button>
               )}
             </nav>
           )}
@@ -493,7 +411,7 @@ export default function App() {
                 className="h-10 px-4 rounded-md bg-[#E50914] hover:bg-[#F41924] text-white font-display font-bold text-xs sm:text-sm inline-flex items-center gap-2 transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <Share2 className="w-4 h-4" aria-hidden="true" />
-                <span>{isViewerMode ? 'مشاركة' : 'مشاركة الرابط'}</span>
+                <span>{isViewerMode ? 'مشاركة' : 'نشر ومشاركة'}</span>
               </button>
             ) : accessToken ? (
               <button
@@ -509,7 +427,7 @@ export default function App() {
                 onClick={handleGoHome}
                 className="h-10 px-4 rounded-md bg-[#E50914] hover:bg-[#F41924] text-white font-display font-bold text-xs sm:text-sm transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer"
               >
-                تحويل رابط جديد
+                إنشاء مسلسل
               </button>
             )}
           </div>
@@ -534,53 +452,31 @@ export default function App() {
           ) : seriesError ? (
             <div className="max-w-xl mx-auto px-6 py-20 text-center space-y-6">
               <h1 className="font-display text-2xl sm:text-3xl font-bold text-white">
-                {requiresSignInForPrivateFolder
-                  ? 'هذا المجلد خاص في Google Drive'
-                  : 'تعذّر فتح هذا الرابط'}
+                تعذّر فتح هذا المجلد
               </h1>
               <p className="text-sm text-[#FCA5A5] leading-relaxed bg-[#E50914]/10 border border-[#E50914]/30 rounded-xl p-5">
                 {seriesError}
               </p>
-
-              {requiresSignInForPrivateFolder ? (
-                <div className="space-y-4 pt-2">
-                  <GoogleSignInButton
-                    onClick={handleLogin}
-                    loading={isLoggingIn}
-                    label="تسجيل الدخول بحساب Google لفتح المجلد"
-                  />
-                  <div>
-                    <button
-                      type="button"
-                      onClick={handleGoHome}
-                      className="text-xs text-[#A1A1AA] hover:text-white transition-colors cursor-pointer"
-                    >
-                      العودة لتجربة رابط آخر
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-                  {pendingFolderId && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        openSeriesFolder(pendingFolderId, { keepCustomization: true })
-                      }
-                      className="h-10 px-5 rounded-md bg-[#E50914] hover:bg-[#F41924] text-white font-display font-bold text-sm transition-colors cursor-pointer"
-                    >
-                      إعادة المحاولة
-                    </button>
-                  )}
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                {pendingFolderId && accessToken && (
                   <button
                     type="button"
-                    onClick={handleGoHome}
-                    className="h-10 px-5 rounded-md bg-[#1C1C22] hover:bg-[#27272F] text-white font-display font-semibold text-sm transition-colors cursor-pointer"
+                    onClick={() => openDriveFolder(pendingFolderId)}
+                    className="h-10 px-5 rounded-md bg-[#E50914] hover:bg-[#F41924] text-white font-display font-bold text-sm transition-colors cursor-pointer"
                   >
-                    إدخال رابط آخر
+                    إعادة المحاولة
                   </button>
-                </div>
-              )}
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    accessToken ? handleSwitchToLibrary('my-drive') : handleGoHome()
+                  }
+                  className="h-10 px-5 rounded-md bg-[#1C1C22] hover:bg-[#27272F] text-white font-display font-semibold text-sm transition-colors cursor-pointer"
+                >
+                  العودة
+                </button>
+              </div>
             </div>
           ) : series ? (
             <SeriesShowcase
@@ -589,15 +485,12 @@ export default function App() {
               customization={customization}
               isViewerMode={isViewerMode}
               watchProgress={watchProgress}
-              onPlayEpisode={handlePlayEpisode}
+              onPlayEpisode={(ep) => setActiveEpisode(ep)}
               onToggleWatched={handleToggleWatched}
               onOpenShare={(ep) =>
                 setShareTarget({ open: true, episode: ep || null })
               }
-              onToggleViewerMode={() => {
-                setIsViewerMode(true);
-                updateAddressBar(series.id, true, customization, null);
-              }}
+              onToggleViewerMode={() => setIsViewerMode(true)}
               onChangeFolder={() => {
                 if (accessToken) handleSwitchToLibrary('my-drive');
                 else handleGoHome();
@@ -609,9 +502,7 @@ export default function App() {
             accessToken={accessToken}
             initialMode={libraryTab}
             recentSeries={recentSeries}
-            onOpenSeries={(id) =>
-              openSeriesFolder(id, { viewerMode: false, keepCustomization: false })
-            }
+            onOpenSeries={(id) => openDriveFolder(id)}
             onRemoveRecent={(id) => setRecentSeries(removeRecentSeries(id))}
             onAuthExpired={handleAuthExpired}
           />
@@ -631,7 +522,7 @@ export default function App() {
                 onClick={handleGoHome}
                 className="hover:text-white transition-colors cursor-pointer"
               >
-                أنشئ صفحة عرض لمسلسلك
+                أنشئ صفحتك الخاصة
               </button>
             ) : (
               <>
@@ -640,7 +531,7 @@ export default function App() {
                   onClick={handleGoHome}
                   className="hover:text-white transition-colors cursor-pointer"
                 >
-                  تحويل رابط جديد
+                  إنشاء مسلسل جديد
                 </button>
                 {accessToken && (
                   <button
@@ -665,14 +556,11 @@ export default function App() {
           episode={activeEpisode}
           accessToken={accessToken}
           watchProgress={watchProgress}
-          onSelectEpisode={(ep) => {
-            setActiveEpisode(ep);
-            updateAddressBar(series.id, isViewerMode, customization, ep.id);
-          }}
+          onSelectEpisode={(ep) => setActiveEpisode(ep)}
           onUpdateProgress={handleUpdateProgress}
           onToggleWatched={handleToggleWatched}
           onOpenShare={(ep) => setShareTarget({ open: true, episode: ep })}
-          onClose={handleClosePlayer}
+          onClose={() => setActiveEpisode(null)}
           onAuthExpired={handleAuthExpired}
         />
       )}
@@ -684,11 +572,8 @@ export default function App() {
           customization={customization}
           isViewerMode={isViewerMode}
           initialEpisode={shareTarget.episode}
-          onUpdateCustomization={handleUpdateCustomization}
-          onEnterViewerPreview={() => {
-            setIsViewerMode(true);
-            updateAddressBar(series.id, true, customization, null);
-          }}
+          onUpdateCustomization={setCustomization}
+          onEnterViewerPreview={() => setIsViewerMode(true)}
           onClose={() => setShareTarget({ open: false, episode: null })}
         />
       )}

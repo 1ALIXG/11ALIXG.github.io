@@ -19,50 +19,21 @@ export class DriveAuthExpiredError extends Error {
   }
 }
 
-export class PublicFolderPrivateError extends Error {
-  constructor(
-    message = 'هذا المجلد خاص في Google Drive. فعّل خيار «أي شخص لديه الرابط» كعارض في Google Drive لفتحه بدون تسجيل دخول، أو سجّل الدخول بحساب Google.'
-  ) {
-    super(message);
-    this.name = 'PublicFolderPrivateError';
-  }
-}
-
 export function extractDriveFolderId(input: string): string | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  // Match /folders/<id>
   const foldersMatch = trimmed.match(/\/folders\/([a-zA-Z0-9_-]{10,})/);
   if (foldersMatch?.[1]) return foldersMatch[1];
 
-  // Match ?id=<id> or &id=<id> or ?watch=<id> or ?folder=<id>
-  const queryIdMatch = trimmed.match(/[?&](?:id|watch|folder)=([a-zA-Z0-9_-]{10,})/);
+  const queryIdMatch = trimmed.match(/[?&](?:id|folder)=([a-zA-Z0-9_-]{10,})/);
   if (queryIdMatch?.[1]) return queryIdMatch[1];
 
-  // Match raw Google Drive ID
   if (/^[a-zA-Z0-9_-]{15,80}$/.test(trimmed)) {
     return trimmed;
   }
 
   return null;
-}
-
-export async function loadPublicSeriesFromFolder(folderId: string): Promise<SeriesData> {
-  const res = await fetch(`/api/public-series/${encodeURIComponent(folderId)}`);
-  const data = await res.json().catch(() => ({}));
-
-  if (res.status === 403 || data?.code === 'PRIVATE_FOLDER') {
-    throw new PublicFolderPrivateError(data?.error);
-  }
-
-  if (!res.ok) {
-    throw new Error(
-      data?.error || 'تعذّر قراءة المجلد من Google Drive. تأكد من صحة الرابط ومن تفعيل المشاركة.'
-    );
-  }
-
-  return data as SeriesData;
 }
 
 async function driveFetch<T>(url: string, token: string): Promise<T> {

@@ -1,43 +1,59 @@
 import React, { useState } from 'react';
-import { Link2, Play, Trash2 } from 'lucide-react';
-import { extractDriveFolderId } from '../lib/drive';
-import { RecentSeriesEntry } from '../types';
+import { FileVideo, FolderOpen, Play } from 'lucide-react';
+import heroBackdropImg from '../assets/images/cinema_hero_backdrop_1795110238692.jpg';
+import { buildManualSeries } from '../lib/shareCodec';
+import { SeriesCustomization, SeriesData } from '../types';
 import { GoogleSignInButton } from './GoogleSignInButton';
 
-const HERO_BACKDROP_SRC = '/src/assets/images/cinema_hero_backdrop_1795110238692.jpg';
-
 interface WelcomeScreenProps {
-  onOpenPublicLink: (folderId: string) => void;
   onSignIn: () => void;
   isSigningIn: boolean;
   errorMessage: string | null;
-  recentSeries: RecentSeriesEntry[];
-  onRemoveRecent: (folderId: string) => void;
+  onCreateManualSeries: (
+    series: SeriesData,
+    customization: SeriesCustomization
+  ) => void;
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
-  onOpenPublicLink,
   onSignIn,
   isSigningIn,
   errorMessage,
-  recentSeries,
-  onRemoveRecent,
+  onCreateManualSeries,
 }) => {
   const [heroImgFailed, setHeroImgFailed] = useState(false);
-  const [linkInput, setLinkInput] = useState('');
-  const [inputError, setInputError] = useState<string | null>(null);
+  const [builderTab, setBuilderTab] = useState<'manual' | 'drive'>('manual');
 
-  const handleSubmitLink = (e: React.FormEvent) => {
+  // Manual zero-login episode links builder state
+  const [manualTitle, setManualTitle] = useState('');
+  const [manualGenre, setManualGenre] = useState('');
+  const [manualYear, setManualYear] = useState('');
+  const [manualDesc, setManualDesc] = useState('');
+  const [manualCover, setManualCover] = useState('');
+  const [manualLinks, setManualLinks] = useState('');
+  const [manualError, setManualError] = useState<string | null>(null);
+
+  const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setInputError(null);
-    const folderId = extractDriveFolderId(linkInput);
-    if (!folderId) {
-      setInputError(
-        'الرابط غير صالح. الصق رابط مجلد Google Drive المشترك مثل: https://drive.google.com/drive/folders/...'
+    setManualError(null);
+
+    const built = buildManualSeries({
+      title: manualTitle || 'مسلسلي',
+      description: manualDesc,
+      genre: manualGenre,
+      year: manualYear,
+      coverInput: manualCover,
+      linksText: manualLinks,
+    });
+
+    if (!built) {
+      setManualError(
+        'الصق رابط حلقة واحدة على الأقل من Google Drive (مثال: https://drive.google.com/file/d/.../view).'
       );
       return;
     }
-    onOpenPublicLink(folderId);
+
+    onCreateManualSeries(built.series, built.customization);
   };
 
   return (
@@ -54,22 +70,22 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-[#A1A1AA]">
             <a
+              href="#builder"
+              className="hover:text-white transition-colors whitespace-nowrap shrink-0"
+            >
+              إنشاء صفحة مسلسل
+            </a>
+            <a
               href="#how-it-works"
               className="hover:text-white transition-colors whitespace-nowrap shrink-0"
             >
               كيف يعمل
             </a>
             <a
-              href="#features"
+              href="#github-publish"
               className="hover:text-white transition-colors whitespace-nowrap shrink-0"
             >
-              المزايا
-            </a>
-            <a
-              href="#privacy"
-              className="hover:text-white transition-colors whitespace-nowrap shrink-0"
-            >
-              طريقة المشاركة
+              النشر على GitHub
             </a>
           </nav>
 
@@ -80,233 +96,275 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               disabled={isSigningIn}
               className="px-4 py-2 text-sm font-display font-semibold text-white bg-[#1C1C24] hover:bg-[#272732] border border-white/[0.12] rounded-md transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-60"
             >
-              تصفّح مجلداتي
+              استيراد من Drive
             </button>
           </div>
         </div>
       </header>
 
-      {/* Full-Bleed Cinema Hero with Instant Link Converter */}
+      {/* Full-Bleed Cinema Hero */}
       <section
         id="top"
-        className="relative flex-1 flex items-center min-h-[78vh] overflow-hidden"
+        className="relative flex-1 flex items-center py-14 lg:py-20 overflow-hidden"
       >
         <div className="absolute inset-0">
           {!heroImgFailed ? (
             <img
-              src={HERO_BACKDROP_SRC}
+              src={heroBackdropImg}
               alt="خلفية عرض سينمائية لمسلسل درامي"
               referrerPolicy="no-referrer"
               onError={() => setHeroImgFailed(true)}
-              className="w-full h-full object-cover object-center opacity-55"
+              className="w-full h-full object-cover object-center opacity-50"
             />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-[#191215] via-[#0A0A0C] to-[#0D1018]" />
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0C] via-[#0A0A0C]/65 to-[#0A0A0C]/35" />
-          <div className="absolute inset-0 bg-gradient-to-l from-[#0A0A0C]/95 via-[#0A0A0C]/70 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0C] via-[#0A0A0C]/70 to-[#0A0A0C]/40" />
+          <div className="absolute inset-0 bg-gradient-to-l from-[#0A0A0C]/95 via-[#0A0A0C]/75 to-[#0A0A0C]/35" />
         </div>
 
-        <div className="relative z-10 max-w-7xl mx-auto w-full px-6 py-16">
-          <div className="max-w-2xl space-y-6">
+        <div
+          id="builder"
+          className="relative z-10 max-w-7xl mx-auto w-full px-6 grid grid-cols-1 lg:grid-cols-12 gap-10 items-center"
+        >
+          {/* Left/Right RTL Headline Column */}
+          <div className="lg:col-span-6 space-y-6">
             <p className="text-sm font-medium text-[#A1A1AA]">
-              بديل سينمائي لواجهة Google Drive · بدون تسجيل دخول للزوار
+              يعمل 100% على GitHub Pages · بدون خادم وبدون تسجيل دخول للزوار
             </p>
 
-            <h1 className="font-display text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.15] tracking-tight text-white [text-wrap:balance]">
-              حوّل رابط Google Drive إلى واجهة عرض مثل نتفلكس
+            <h1 className="font-display text-4xl sm:text-5xl font-extrabold leading-[1.15] tracking-tight text-white [text-wrap:balance]">
+              حوّل حلقاتك في Google Drive إلى موقع عرض مثل نتفلكس
             </h1>
 
-            <p className="text-base sm:text-lg text-[#D4D4D8] leading-relaxed max-w-xl">
-              الصق رابط مجلد الحلقات المشترك من Google Drive، وسيظهر لأصدقائك بواجهة مسلسلات احترافية مع غلاف ومواسم ومشغّل حلقات — بدلاً من شكل Google Drive التقليدي.
+            <p className="text-base text-[#D4D4D8] leading-relaxed max-w-xl">
+              أنشئ صفحة مسلسلك خلال ثوانٍ، وشارك رابط المشاهدة أو انشر ملف الإعداد على دومينك في GitHub Pages — ليشاهد أصدقاؤك الحلقات بواجهة سينمائية كاملة بدلاً من واجهة Google Drive.
             </p>
 
-            {/* Primary Instant Link Paste Form — Zero Login Required */}
-            <form
-              onSubmit={handleSubmitLink}
-              className="pt-2 flex flex-col sm:flex-row gap-3 max-w-xl"
-            >
-              <div className="relative flex-1">
-                <Link2
-                  className="w-4 h-4 text-[#71717A] absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none"
-                  aria-hidden="true"
-                />
-                <input
-                  type="text"
-                  dir="ltr"
-                  value={linkInput}
-                  onChange={(e) => {
-                    setLinkInput(e.target.value);
-                    if (inputError) setInputError(null);
-                  }}
-                  placeholder="https://drive.google.com/drive/folders/..."
-                  className="w-full h-13 pr-11 pl-4 rounded-lg bg-[#141418]/95 border border-white/[0.16] text-sm text-white placeholder:text-[#71717A] focus:outline-none focus:border-[#E50914] transition-colors text-left"
-                />
-              </div>
-              <button
-                type="submit"
-                className="h-13 px-7 rounded-lg bg-[#E50914] hover:bg-[#F41924] text-white font-display font-bold text-sm sm:text-base transition-colors duration-150 whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                تحويل إلى واجهة نتفلكس
-              </button>
-            </form>
-
-            {(inputError || errorMessage) && (
-              <div
-                role="alert"
-                className="p-4 rounded-lg bg-[#E50914]/15 border border-[#E50914]/40 text-sm text-[#FCA5A5] max-w-xl"
-              >
-                {inputError || errorMessage}
-              </div>
-            )}
-
-            {/* Secondary Option: Sign in with Google for private folders */}
-            <div className="pt-3 flex flex-wrap items-center gap-4 border-t border-white/[0.08] max-w-xl">
-              <span className="text-xs text-[#A1A1AA]">
-                أو تصفّح مجلداتك الخاصة مباشرة:
-              </span>
-              <GoogleSignInButton
-                onClick={onSignIn}
-                loading={isSigningIn}
-                size="md"
-                label="تسجيل الدخول بحساب Google"
-              />
-            </div>
-
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#A1A1AA]">
-              <span>الزائر يشاهد فوراً بدون تسجيل دخول</span>
+              <span>رابط مشاركة ذاتي بدون سيرفر</span>
               <span aria-hidden="true">·</span>
-              <span>تخصيص الاسم والقصة والغلاف</span>
+              <span>يدعم النشر المباشر على الدومين</span>
               <span aria-hidden="true">·</span>
-              <span>يدعم المواسم والترجمة العربية</span>
+              <span>المشاهد لا يحتاج تسجيل دخول</span>
             </div>
           </div>
-        </div>
-      </section>
 
-      {/* Recently Opened Series (if any) */}
-      {recentSeries.length > 0 && (
-        <section className="border-t border-white/[0.08] py-12 bg-[#0D0D11]">
-          <div className="max-w-7xl mx-auto px-6 space-y-5">
-            <h2 className="font-display text-xl font-bold text-white">
-              روابط فتحتها مؤخراً
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {recentSeries.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-xl bg-[#141418] border border-white/[0.08] hover:border-white/[0.2] transition-colors p-5 flex flex-col justify-between gap-4"
+          {/* Interactive Builder Card */}
+          <div className="lg:col-span-6">
+            <div className="rounded-2xl bg-[#141418]/95 border border-white/[0.1] backdrop-blur-md p-6 space-y-5">
+              {/* Mode Switcher */}
+              <div className="grid grid-cols-2 gap-1 p-1 rounded-lg bg-[#0A0A0C] border border-white/[0.08]">
+                <button
+                  type="button"
+                  onClick={() => setBuilderTab('manual')}
+                  className={`py-2.5 px-3 rounded-md text-xs sm:text-sm font-display font-bold inline-flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                    builderTab === 'manual'
+                      ? 'bg-white text-[#0A0A0C]'
+                      : 'text-[#A1A1AA] hover:text-white'
+                  }`}
                 >
-                  <div className="space-y-1.5">
-                    <h3 className="font-display font-bold text-base text-white truncate">
-                      {item.name}
-                    </h3>
-                    <div className="flex items-center gap-2 text-xs text-[#A1A1AA]">
-                      <span className="font-mono-num">
-                        {item.seasonsCount > 1
-                          ? `${item.seasonsCount} مواسم`
-                          : 'موسم واحد'}
-                      </span>
-                      <span aria-hidden="true">·</span>
-                      <span className="font-mono-num">{item.totalEpisodes} حلقة</span>
+                  <FileVideo className="w-4 h-4" aria-hidden="true" />
+                  <span>لصق روابط الحلقات</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBuilderTab('drive')}
+                  className={`py-2.5 px-3 rounded-md text-xs sm:text-sm font-display font-bold inline-flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                    builderTab === 'drive'
+                      ? 'bg-white text-[#0A0A0C]'
+                      : 'text-[#A1A1AA] hover:text-white'
+                  }`}
+                >
+                  <FolderOpen className="w-4 h-4" aria-hidden="true" />
+                  <span>استيراد مجلد Drive</span>
+                </button>
+              </div>
+
+              {builderTab === 'manual' ? (
+                <form onSubmit={handleManualSubmit} className="space-y-4">
+                  <p className="text-xs text-[#A1A1AA] leading-relaxed">
+                    بدون تسجيل دخول: الصق روابط ملفات الحلقات من Google Drive (رابط في كل سطر)، وتأكد أن كل ملف مضبوط على «أي شخص لديه الرابط».
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2 space-y-1">
+                      <label className="text-xs font-semibold text-[#D4D4D8] block">
+                        اسم المسلسل
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={manualTitle}
+                        onChange={(e) => setManualTitle(e.target.value)}
+                        placeholder="مثال: اسم المسلسل"
+                        className="w-full h-10 px-3.5 rounded-lg bg-[#0A0A0C] border border-white/[0.12] text-sm text-white placeholder:text-[#52525B] focus:outline-none focus:border-[#E50914]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-[#D4D4D8] block">
+                        السنة (اختياري)
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={manualYear}
+                        onChange={(e) => setManualYear(e.target.value)}
+                        placeholder="2026"
+                        className="w-full h-10 px-3 rounded-lg bg-[#0A0A0C] border border-white/[0.12] text-sm font-mono-num text-white placeholder:text-[#52525B] text-left focus:outline-none focus:border-[#E50914]"
+                      />
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/[0.06]">
-                    <button
-                      type="button"
-                      onClick={() => onOpenPublicLink(item.id)}
-                      className="inline-flex items-center gap-1.5 text-sm font-display font-bold text-white hover:text-[#E50914] transition-colors cursor-pointer"
-                    >
-                      <Play className="w-4 h-4 fill-current" aria-hidden="true" />
-                      <span>فتح المسلسل</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onRemoveRecent(item.id)}
-                      aria-label={`إزالة ${item.name} من السجل`}
-                      className="p-1.5 text-[#71717A] hover:text-[#FCA5A5] transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-[#D4D4D8] block">
+                        التصنيف (اختياري)
+                      </label>
+                      <input
+                        type="text"
+                        value={manualGenre}
+                        onChange={(e) => setManualGenre(e.target.value)}
+                        placeholder="دراما · تشويق"
+                        className="w-full h-10 px-3.5 rounded-lg bg-[#0A0A0C] border border-white/[0.12] text-sm text-white placeholder:text-[#52525B] focus:outline-none focus:border-[#E50914]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-[#D4D4D8] block">
+                        رابط صورة الغلاف (اختياري)
+                      </label>
+                      <input
+                        type="text"
+                        dir="ltr"
+                        value={manualCover}
+                        onChange={(e) => setManualCover(e.target.value)}
+                        placeholder="رابط صورة أو ملف صورة في Drive"
+                        className="w-full h-10 px-3 rounded-lg bg-[#0A0A0C] border border-white/[0.12] text-xs text-white placeholder:text-[#52525B] text-left focus:outline-none focus:border-[#E50914]"
+                      />
+                    </div>
                   </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-[#D4D4D8] block">
+                      قصة المسلسل (اختياري)
+                    </label>
+                    <input
+                      type="text"
+                      value={manualDesc}
+                      onChange={(e) => setManualDesc(e.target.value)}
+                      placeholder="نبذة قصيرة تظهر أسفل اسم المسلسل..."
+                      className="w-full h-10 px-3.5 rounded-lg bg-[#0A0A0C] border border-white/[0.12] text-sm text-white placeholder:text-[#52525B] focus:outline-none focus:border-[#E50914]"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-[#D4D4D8] block">
+                      روابط الحلقات من Google Drive (حلقة في كل سطر)
+                    </label>
+                    <textarea
+                      rows={4}
+                      dir="ltr"
+                      required
+                      value={manualLinks}
+                      onChange={(e) => {
+                        setManualLinks(e.target.value);
+                        if (manualError) setManualError(null);
+                      }}
+                      placeholder={
+                        'الحلقة 1 | https://drive.google.com/file/d/FILE_ID_1/view\nالحلقة 2 | https://drive.google.com/file/d/FILE_ID_2/view'
+                      }
+                      className="w-full p-3 rounded-lg bg-[#0A0A0C] border border-white/[0.12] text-xs font-mono-num text-white placeholder:text-[#52525B] text-left focus:outline-none focus:border-[#E50914] resize-y"
+                    />
+                  </div>
+
+                  {manualError && (
+                    <p
+                      role="alert"
+                      className="text-xs text-[#FCA5A5] bg-[#E50914]/15 border border-[#E50914]/40 rounded-lg p-3"
+                    >
+                      {manualError}
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="w-full h-11 rounded-lg bg-[#E50914] hover:bg-[#F41924] text-white font-display font-bold text-sm inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <Play className="w-4 h-4 fill-current" aria-hidden="true" />
+                    <span>إنشاء واجهة المسلسل الآن</span>
+                  </button>
+                </form>
+              ) : (
+                <div className="py-4 space-y-5">
+                  <div className="space-y-2">
+                    <h2 className="font-display font-bold text-lg text-white">
+                      استيراد مجلد كامل بضغطة واحدة
+                    </h2>
+                    <p className="text-sm text-[#A1A1AA] leading-relaxed">
+                      سجّل الدخول بحسابك في Google مرة واحدة فقط ليقرأ التطبيق جميع المواسم والحلقات والصور المصغّرة والمدد تلقائياً من مجلدك، ثم ينشئ لك رابط مشاهدة عاماً أو ملف <span className="font-mono-num text-white">series.json</span> يعمل بدون تسجيل دخول للزوار.
+                    </p>
+                  </div>
+
+                  {errorMessage && (
+                    <div
+                      role="alert"
+                      className="p-3.5 rounded-lg bg-[#E50914]/15 border border-[#E50914]/40 text-xs text-[#FCA5A5]"
+                    >
+                      {errorMessage}
+                    </div>
+                  )}
+
+                  <GoogleSignInButton
+                    onClick={onSignIn}
+                    loading={isSigningIn}
+                    label="تسجيل الدخول بحساب Google لاستيراد المجلد"
+                  />
+
+                  <p className="text-xs text-[#71717A] leading-relaxed">
+                    ملاحظة: إذا كنت تستخدم دوميناً جديداً ولم تضفه بعد في Firebase Authorized Domains، يمكنك استخدام تبويب «لصق روابط الحلقات» بالأعلى مباشرة بدون تسجيل دخول.
+                  </p>
                 </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* How It Works — 3-step editorial row */}
-      <section id="how-it-works" className="border-t border-white/[0.08] py-20">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="mb-12 max-w-xl">
-            <h2 className="font-display text-2xl sm:text-3xl font-bold text-white">
-              كيف تشارك مسلسلك بواجهة نتفلكس بدلاً من Google Drive؟
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-            <div className="space-y-3 border-t border-white/[0.1] pt-6">
-              <span className="font-mono-num text-sm font-semibold text-[#E50914]">01</span>
-              <h3 className="font-display text-lg font-bold text-white">
-                انسخ رابط المجلد من Google Drive
-              </h3>
-              <p className="text-sm text-[#A1A1AA] leading-relaxed">
-                في Google Drive اضغط «مشاركة» على مجلد المسلسل واختر «أي شخص لديه الرابط» بصلاحية عارض، ثم انسخ الرابط.
-              </p>
-            </div>
-
-            <div className="space-y-3 border-t border-white/[0.1] pt-6">
-              <span className="font-mono-num text-sm font-semibold text-[#E50914]">02</span>
-              <h3 className="font-display text-lg font-bold text-white">
-                الصقه هنا وخصّص الواجهة
-              </h3>
-              <p className="text-sm text-[#A1A1AA] leading-relaxed">
-                يتحوّل المجلد فوراً إلى صفحة عرض سينمائية بالمواسم والحلقات، ويمكنك تعديل الاسم والقصة والتصنيف والغلاف حسب ذوقك.
-              </p>
-            </div>
-
-            <div className="space-y-3 border-t border-white/[0.1] pt-6">
-              <span className="font-mono-num text-sm font-semibold text-[#E50914]">03</span>
-              <h3 className="font-display text-lg font-bold text-white">
-                أرسل الرابط الجديد لصديقك
-              </h3>
-              <p className="text-sm text-[#A1A1AA] leading-relaxed">
-                بدلاً من إرسال رابط Google Drive، أرسل رابط المشاهدة الجديد من هنا ليفتح عنده فوراً بواجهة نتفلكس دون تسجيل دخول.
-              </p>
+              )}
             </div>
           </div>
         </div>
       </section>
 
-      {/* Features & Sharing */}
-      <section id="features" className="border-t border-white/[0.08] py-16 bg-[#111115]">
-        <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 md:grid-cols-2 gap-12">
-          <div className="space-y-4">
-            <h2 className="font-display text-xl font-bold text-white">
-              تنظيم تلقائي للمواسم والغلاف والترجمة
-            </h2>
-            <p className="text-sm text-[#A1A1AA] leading-relaxed">
-              ضع كل موسم في مجلد فرعي داخل مجلد المسلسل، وأضف صورة غلاف (مثل <span className="font-mono-num text-[#E4E4E7]">cover.jpg</span>) ليظهر بوستر المسلسل تلقائياً. كما تُكتشف ملفات الترجمة <span className="font-mono-num text-[#E4E4E7]">.SRT</span> و<span className="font-mono-num text-[#E4E4E7]">.VTT</span> تلقائياً.
-            </p>
-          </div>
+      {/* How It Works */}
+      <section id="how-it-works" className="border-t border-white/[0.08] py-16">
+        <div className="max-w-7xl mx-auto px-6">
+          <h2 className="font-display text-2xl sm:text-3xl font-bold text-white mb-10">
+            طريقتان لمشاركة المسلسل على دومينك في GitHub Pages
+          </h2>
 
-          <div id="privacy" className="space-y-4">
-            <h2 className="font-display text-xl font-bold text-white">
-              تبقى ملفاتك آمنة في Google Drive
-            </h2>
-            <p className="text-sm text-[#A1A1AA] leading-relaxed">
-              لا يتم رفع أو نسخ ملفات الفيديو إلى أي موقع آخر — التطبيق يعرض ملفات مجلدك المشترك فقط بشكل منسّق، ويمكنك إيقاف المشاركة في أي لحظة من Google Drive.
-            </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+            <div className="space-y-3 border-t border-white/[0.1] pt-6">
+              <span className="font-mono-num text-sm font-semibold text-[#E50914]">01</span>
+              <h3 className="font-display text-lg font-bold text-white">
+                رابط مشاركة فوري (<span className="font-mono-num">#watch=...</span>)
+              </h3>
+              <p className="text-sm text-[#A1A1AA] leading-relaxed">
+                بعد تجهيز المسلسل اضغط «تخصيص ومشاركة الرابط». ينتج التطبيق رابطاً مشفّراً يحتوي على قائمة الحلقات والغلاف يعمل على أي دومين GitHub Pages بدون سيرفر وبدون تسجيل دخول للشخص الذي يستلم الرابط.
+              </p>
+            </div>
+
+            <div id="github-publish" className="space-y-3 border-t border-white/[0.1] pt-6">
+              <span className="font-mono-num text-sm font-semibold text-[#E50914]">02</span>
+              <h3 className="font-display text-lg font-bold text-white">
+                نشر دائم على الدومين الرئيسي (<span className="font-mono-num">public/series.json</span>)
+              </h3>
+              <p className="text-sm text-[#A1A1AA] leading-relaxed">
+                اضغط «تحميل ملف series.json» من نافذة المشاركة وضعه داخل مجلد <span className="font-mono-num text-[#E4E4E7]">public/</span> في مستودع GitHub. بمجرد الرفع سيعمل GitHub Actions تلقائياً ويفتح دومينك الرئيسي مباشرة على واجهة المسلسل!
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
       <footer className="border-t border-white/[0.08] py-8">
         <div className="max-w-7xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#71717A]">
-          <span>سينما درايف — واجهة عرض سينمائية لمجلدات المسلسلات</span>
-          <span>يعمل مباشرة مع روابط Google Drive المشتركة</span>
+          <span>سينما درايف — واجهة عرض سينمائية متوافقة مع GitHub Pages</span>
+          <span>يعمل بالكامل من المتصفح بدون خادم خارجي</span>
         </div>
       </footer>
     </div>

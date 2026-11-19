@@ -4,11 +4,18 @@ import {
   Check,
   CheckCircle2,
   Copy,
+  Download,
   ExternalLink,
   Eye,
+  Globe,
   Link2,
   X,
 } from 'lucide-react';
+import {
+  buildCompactPayload,
+  encodeSeriesToHashToken,
+  PublishedSeriesFile,
+} from '../lib/shareCodec';
 import { Episode, SeriesCustomization, SeriesData } from '../types';
 
 interface ShareModalProps {
@@ -19,26 +26,6 @@ interface ShareModalProps {
   onUpdateCustomization: (next: SeriesCustomization) => void;
   onEnterViewerPreview?: () => void;
   onClose: () => void;
-}
-
-export function buildWatchShareUrl(
-  folderId: string,
-  customization: SeriesCustomization,
-  episodeId?: string | null
-): string {
-  const url = new URL(window.location.href);
-  url.search = '';
-  url.hash = '';
-  url.searchParams.set('watch', folderId);
-  if (episodeId) url.searchParams.set('ep', episodeId);
-  if (customization.title?.trim()) url.searchParams.set('t', customization.title.trim());
-  if (customization.description?.trim()) {
-    url.searchParams.set('d', customization.description.trim());
-  }
-  if (customization.genre?.trim()) url.searchParams.set('g', customization.genre.trim());
-  if (customization.year?.trim()) url.searchParams.set('y', customization.year.trim());
-  if (customization.coverUrl?.trim()) url.searchParams.set('c', customization.coverUrl.trim());
-  return url.toString();
 }
 
 export const ShareModal: React.FC<ShareModalProps> = ({
@@ -54,6 +41,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     initialEpisode ? 'episode' : 'series'
   );
   const [copied, setCopied] = useState(false);
+  const [downloadedJson, setDownloadedJson] = useState(false);
 
   const [title, setTitle] = useState(customization.title || series.name);
   const [description, setDescription] = useState(
@@ -62,6 +50,8 @@ export const ShareModal: React.FC<ShareModalProps> = ({
   const [genre, setGenre] = useState(customization.genre || '');
   const [year, setYear] = useState(customization.year || '');
   const [coverUrl, setCoverUrl] = useState(customization.coverUrl || '');
+  const [customDomainBase, setCustomDomainBase] = useState('');
+  const [shareUrl, setShareUrl] = useState('');
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -81,7 +71,6 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     };
   }, [title, description, genre, year, coverUrl, series.name]);
 
-  // Sync live changes back to parent hero preview
   useEffect(() => {
     if (!isViewerMode) {
       onUpdateCustomization(effectiveCustomization);
@@ -89,17 +78,47 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveCustomization]);
 
-  const shareUrl = useMemo(
-    () =>
-      buildWatchShareUrl(
-        series.id,
+  // Generate self-contained compressed #watch= hash link (works 100% statically on GitHub Pages!)
+  useEffect(() => {
+    let cancelled = false;
+
+    const generate = async () => {
+      const payload = buildCompactPayload(
+        series,
         isViewerMode ? customization : effectiveCustomization,
         shareScope === 'episode' && initialEpisode ? initialEpisode.id : null
-      ),
-    [series.id, isViewerMode, customization, effectiveCustomization, shareScope, initialEpisode]
-  );
+      );
+      const token = await encodeSeriesToHashToken(payload);
+
+      let base = `${window.location.origin}${window.location.pathname}`;
+      if (customDomainBase.trim()) {
+        const cleaned = customDomainBase.trim().replace(/\/+$/, '');
+        base = cleaned.startsWith('http://') || cleaned.startsWith('https://')
+          ? `${cleaned}/`
+          : `https://${cleaned}/`;
+      }
+
+      if (!cancelled) {
+        setShareUrl(`${base}#watch=${token}`);
+      }
+    };
+
+    generate();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    series,
+    isViewerMode,
+    customization,
+    effectiveCustomization,
+    shareScope,
+    initialEpisode,
+    customDomainBase,
+  ]);
 
   const handleCopy = async () => {
+    if (!shareUrl) return;
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
@@ -116,11 +135,36 @@ export const ShareModal: React.FC<ShareModalProps> = ({
     }
   };
 
+  const handleDownloadSeriesJson = () => {
+    const payload = buildCompactPayload(
+      series,
+      isViewerMode ? customization : effectiveCustomization,
+      null
+    );
+    const fileData: PublishedSeriesFile = {
+      published: true,
+      series: payload,
+    };
+    const blob = new Blob([JSON.stringify(fileData, null, 2)], {
+      type: 'application/json;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'series.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setDownloadedJson(true);
+    setTimeout(() => setDownloadedJson(false), 3000);
+  };
+
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="تخصيص ومشاركة رابط المشاهدة"
+      aria-label="تخصيص ونشر رابط المسلسل"
       className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -131,10 +175,10 @@ export const ShareModal: React.FC<ShareModalProps> = ({
         <div className="px-6 py-5 border-b border-white/[0.08] flex items-center justify-between gap-4">
           <div className="min-w-0">
             <h2 className="font-display text-xl font-bold text-white truncate">
-              {isViewerMode ? 'مشاركة رابط المشاهدة' : 'تخصيص ومشاركة رابط نتفلكس'}
+              {isViewerMode ? 'مشاركة رابط المشاهدة' : 'تخصيص ونشر على GitHub / دومينك'}
             </h2>
             <p className="text-xs text-[#A1A1AA] mt-0.5">
-              أرسل هذا الرابط بدلاً من رابط Google Drive ليظهر للشخص بهذه الواجهة فوراً بدون تسجيل دخول
+              يعمل بدون خادم وبدون تسجيل دخول للشخص الذي يفتح الرابط
             </p>
           </div>
           <button
@@ -149,7 +193,6 @@ export const ShareModal: React.FC<ShareModalProps> = ({
 
         {/* Body */}
         <div className="p-6 space-y-5 max-h-[78vh] overflow-y-auto">
-          {/* Creator Customization Fields */}
           {!isViewerMode && (
             <div className="space-y-4 pb-5 border-b border-white/[0.08]">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -213,7 +256,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                       setDescription(e.target.value);
                       setCopied(false);
                     }}
-                    placeholder="اكتب نبذة قصيرة تظهر في الواجهة الرئيسية للمسلسل..."
+                    placeholder="نبذة قصيرة تظهر في الواجهة الرئيسية للمسلسل..."
                     className="w-full p-3 rounded-lg bg-[#0A0A0C] border border-white/[0.1] text-sm text-white placeholder:text-[#52525B] focus:outline-none focus:border-[#E50914] resize-none"
                   />
                 </div>
@@ -230,7 +273,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                       setCoverUrl(e.target.value);
                       setCopied(false);
                     }}
-                    placeholder="اتركه فارغاً لاستخدام صورة الغلاف من داخل المجلد تلقائياً"
+                    placeholder="اتركه فارغاً لاستخدام صورة الغلاف من المجلد تلقائياً"
                     className="w-full h-10 px-3.5 rounded-lg bg-[#0A0A0C] border border-white/[0.1] text-xs text-white placeholder:text-[#52525B] text-left focus:outline-none focus:border-[#E50914]"
                   />
                   {series.coverOptions && series.coverOptions.length > 0 && (
@@ -289,10 +332,36 @@ export const ShareModal: React.FC<ShareModalProps> = ({
             </div>
           )}
 
+          {/* Optional Custom Domain Base */}
+          {!isViewerMode && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-[#D4D4D8] block">
+                دومينك على GitHub Pages (اختياري لتوليد الرابط على دومينك مباشرة)
+              </label>
+              <div className="relative">
+                <Globe
+                  className="w-4 h-4 text-[#71717A] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                  aria-hidden="true"
+                />
+                <input
+                  type="text"
+                  dir="ltr"
+                  value={customDomainBase}
+                  onChange={(e) => {
+                    setCustomDomainBase(e.target.value);
+                    setCopied(false);
+                  }}
+                  placeholder="https://yourdomain.com أو username.github.io/repo"
+                  className="w-full h-10 pr-10 pl-3 rounded-lg bg-[#0A0A0C] border border-white/[0.1] text-xs font-mono-num text-white placeholder:text-[#52525B] text-left focus:outline-none focus:border-[#E50914]"
+                />
+              </div>
+            </div>
+          )}
+
           {/* Share URL Copy Box */}
           <div className="space-y-2">
             <label className="text-xs font-semibold text-[#D4D4D8] block">
-              رابط المشاهدة بواجهة نتفلكس (أرسله لصديقك بدلاً من رابط Drive)
+              رابط المشاهدة الذاتي (يفتح مباشرة بدون تسجيل دخول)
             </label>
             <div className="flex items-center gap-2">
               <div className="relative flex-1 min-w-0">
@@ -329,6 +398,37 @@ export const ShareModal: React.FC<ShareModalProps> = ({
             </div>
           </div>
 
+          {/* Publish permanently to Domain Root via public/series.json */}
+          {!isViewerMode && (
+            <div className="rounded-xl bg-[#0E0E12] border border-white/[0.08] p-4 space-y-3">
+              <div className="space-y-1">
+                <p className="font-display font-bold text-sm text-white">
+                  تريد أن يفتح دومينك الرئيسي مباشرة على المسلسل بدون رابط طويل؟
+                </p>
+                <p className="text-xs text-[#A1A1AA] leading-relaxed">
+                  حمّل ملف <span className="font-mono-num text-white">series.json</span> واستبدل به الملف الموجود داخل <span className="font-mono-num text-white">public/series.json</span> في مستودع GitHub — بعدها أي شخص يزور دومينك سيدخل للمسلسل مباشرة!
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleDownloadSeriesJson}
+                className="w-full h-10 px-4 rounded-lg bg-white text-[#0A0A0C] hover:bg-[#E4E4E7] text-xs font-display font-bold inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                {downloadedJson ? (
+                  <>
+                    <Check className="w-4 h-4" aria-hidden="true" />
+                    <span>تم تحميل ملف series.json</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-4 h-4" aria-hidden="true" />
+                    <span>تحميل series.json للنشر على GitHub Pages</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
           {/* Preview as Viewer Button */}
           {!isViewerMode && onEnterViewerPreview && (
             <button
@@ -340,12 +440,12 @@ export const ShareModal: React.FC<ShareModalProps> = ({
               className="w-full h-10 px-4 rounded-lg bg-white/10 hover:bg-white/15 text-white text-xs font-display font-semibold inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
               <Eye className="w-4 h-4" aria-hidden="true" />
-              <span>معاينة الصفحة كما ستظهر للشخص الذي سترسل له الرابط</span>
+              <span>معاينة الصفحة كما ستظهر للزائر</span>
             </button>
           )}
 
-          {/* Drive Public Sharing Status */}
-          {!isViewerMode && (
+          {/* Drive Public Access Reminder */}
+          {!isViewerMode && series.id !== 'manual-series' && (
             <div className="rounded-xl bg-[#0E0E12] border border-white/[0.08] p-4 space-y-3">
               <div className="flex items-start gap-3">
                 {series.isPublicLink ? (
@@ -359,17 +459,16 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                     aria-hidden="true"
                   />
                 )}
-
                 <div className="space-y-1">
                   <p className="font-display font-bold text-sm text-white">
                     {series.isPublicLink
-                      ? 'المجلد جاهز للمشاهدة بدون تسجيل دخول'
-                      : 'تذكير مهم قبل إرسال الرابط'}
+                      ? 'المجلد مضبوط للمشاهدة العامة في Google Drive'
+                      : 'تأكد من تفعيل المشاركة في Google Drive'}
                   </p>
                   <p className="text-xs text-[#A1A1AA] leading-relaxed">
                     {series.isPublicLink
-                      ? 'المجلد مضبوط على «أي شخص لديه الرابط» في Google Drive، لذلك سيفتح الرابط أعلاه مباشرة عند أي شخص بواجهة نتفلكس دون أن يُطلب منه تسجيل الدخول.'
-                      : 'لكي يعمل الرابط أعلاه عند صديقك بدون تسجيل دخول، افتح المجلد في Google Drive واضغط «مشاركة» ثم اختر «أي شخص لديه الرابط — عارض».'}
+                      ? 'ملفات الفيديو متاحة لأي شخص لديه الرابط، لذلك ستعمل الحلقات فوراً لدى أصدقائك.'
+                      : 'لكي تعمل الحلقات عند الزوار بدون تسجيل دخول، افتح المجلد في Google Drive واجعل صلاحية المشاركة «أي شخص لديه الرابط — عارض».'}
                   </p>
                 </div>
               </div>
@@ -382,7 +481,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                   className="w-full h-9 px-4 rounded-lg bg-[#1C1C24] hover:bg-[#272732] text-white text-xs font-display font-semibold inline-flex items-center justify-center gap-2 transition-colors"
                 >
                   <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>تفعيل «أي شخص لديه الرابط» في Google Drive</span>
+                  <span>فتح إعدادات المشاركة في Google Drive</span>
                 </a>
               )}
             </div>

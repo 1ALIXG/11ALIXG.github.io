@@ -12,6 +12,8 @@ import {
   SlidersHorizontal,
   Subtitles,
 } from 'lucide-react';
+import heroFallbackImg from '../assets/images/cinema_hero_backdrop_1795110238692.jpg';
+import episodeFallbackImg from '../assets/images/episode_fallback_poster_1795110239049.jpg';
 import {
   fetchDriveMediaBlobUrl,
   formatArabicDate,
@@ -24,9 +26,6 @@ import {
   SeriesData,
   WatchProgressEntry,
 } from '../types';
-
-const HERO_FALLBACK = '/src/assets/images/cinema_hero_backdrop_1795110238692.jpg';
-const EPISODE_FALLBACK = '/src/assets/images/episode_fallback_poster_1795110239049.jpg';
 
 interface SeriesShowcaseProps {
   series: SeriesData;
@@ -80,7 +79,7 @@ const EpisodeThumb: React.FC<EpisodeThumbProps> = ({
         />
       ) : srcStage === 'fallback' ? (
         <img
-          src={EPISODE_FALLBACK}
+          src={episodeFallbackImg}
           alt={episode.title}
           referrerPolicy="no-referrer"
           loading="lazy"
@@ -325,7 +324,7 @@ export const SeriesShowcase: React.FC<SeriesShowcaseProps> = ({
     if (heroStage === 'fallback') {
       return (
         <img
-          src={HERO_FALLBACK}
+          src={heroFallbackImg}
           alt={displayTitle}
           referrerPolicy="no-referrer"
           onError={() => setHeroStage('css')}
@@ -429,7 +428,7 @@ export const SeriesShowcase: React.FC<SeriesShowcaseProps> = ({
                 ) : (
                   <>
                     <SlidersHorizontal className="w-4 h-4" aria-hidden="true" />
-                    <span>تخصيص ومشاركة الرابط</span>
+                    <span>تخصيص ونشر الرابط</span>
                   </>
                 )}
               </button>
@@ -452,7 +451,7 @@ export const SeriesShowcase: React.FC<SeriesShowcaseProps> = ({
                   className="h-12 px-5 rounded-md bg-[#141418]/80 hover:bg-[#1E1E24] border border-white/[0.12] text-[#A1A1AA] hover:text-white font-display font-medium text-sm inline-flex items-center gap-2 transition-colors duration-150 whitespace-nowrap cursor-pointer"
                 >
                   <FolderOpen className="w-4 h-4" aria-hidden="true" />
-                  <span>تغيير الرابط</span>
+                  <span>تغيير المسلسل</span>
                 </button>
               )}
             </div>
@@ -468,7 +467,7 @@ export const SeriesShowcase: React.FC<SeriesShowcaseProps> = ({
               لا توجد حلقات فيديو في هذا المجلد
             </h2>
             <p className="text-sm text-[#A1A1AA] max-w-lg mx-auto leading-relaxed">
-              تأكد من أن الرابط يشير إلى مجلد يحتوي على ملفات فيديو (MP4 أو MKV أو WebM) أو مجلدات فرعية للمواسم، وأن مشاركة المجلد مفعّلة في Google Drive.
+              تأكد من اختيار المجلد الذي يحتوي على ملفات فيديو (MP4 أو MKV أو WebM) أو مجلدات فرعية للمواسم.
             </p>
             {onChangeFolder && (
               <div className="pt-2">

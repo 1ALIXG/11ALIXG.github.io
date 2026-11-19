@@ -48,6 +48,7 @@ export const EpisodePlayerModal: React.FC<EpisodePlayerModalProps> = ({
   onClose,
   onAuthExpired,
 }) => {
+  const canUseDirectMode = Boolean(accessToken && !series.isPublicSource);
   const [playerMode, setPlayerMode] = useState<'adaptive' | 'direct'>('adaptive');
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -96,11 +97,13 @@ export const EpisodePlayerModal: React.FC<EpisodePlayerModalProps> = ({
     setDirectError(null);
     setSubtitleTracks([]);
     lastSavedTimeRef.current = 0;
-  }, [episode.id]);
+    if (!canUseDirectMode) {
+      setPlayerMode('adaptive');
+    }
+  }, [episode.id, canUseDirectMode]);
 
-  // Load Direct HTML5 stream (supports both public proxy and authenticated Drive)
   useEffect(() => {
-    if (playerMode !== 'direct') return;
+    if (playerMode !== 'direct' || !accessToken) return;
 
     let cancelled = false;
     const urlsToRevoke: string[] = [];
@@ -108,22 +111,6 @@ export const EpisodePlayerModal: React.FC<EpisodePlayerModalProps> = ({
     const loadDirect = async () => {
       setDirectLoading(true);
       setDirectError(null);
-
-      // Public zero-login stream via backend proxy
-      if (series.isPublicSource || !accessToken) {
-        setDirectVideoUrl(`/api/public-stream/${encodeURIComponent(episode.id)}`);
-        setSubtitleTracks(
-          episode.subtitles.map((sub) => ({
-            id: sub.id,
-            label: sub.languageLabel,
-            url: `/api/public-subtitle/${encodeURIComponent(sub.id)}?name=${encodeURIComponent(sub.name)}`,
-          }))
-        );
-        setDirectLoading(false);
-        return;
-      }
-
-      // Authenticated private Drive stream
       try {
         const videoBlobUrl = await fetchDriveMediaBlobUrl(accessToken, episode.id);
         if (cancelled) {
@@ -174,14 +161,7 @@ export const EpisodePlayerModal: React.FC<EpisodePlayerModalProps> = ({
       cancelled = true;
       urlsToRevoke.forEach((u) => URL.revokeObjectURL(u));
     };
-  }, [
-    playerMode,
-    episode.id,
-    episode.subtitles,
-    accessToken,
-    series.isPublicSource,
-    onAuthExpired,
-  ]);
+  }, [playerMode, episode.id, episode.subtitles, accessToken, onAuthExpired]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -254,35 +234,37 @@ export const EpisodePlayerModal: React.FC<EpisodePlayerModalProps> = ({
           </div>
         </div>
 
-        {/* Playback Switcher & Drawer */}
+        {/* Controls */}
         <div className="flex items-center gap-2 shrink-0">
-          <div className="hidden md:inline-flex items-center p-1 rounded-lg bg-[#141418] border border-white/[0.08]">
-            <button
-              type="button"
-              onClick={() => setPlayerMode('adaptive')}
-              className={`px-3 py-1.5 rounded-md text-xs font-display font-semibold transition-colors whitespace-nowrap cursor-pointer ${
-                playerMode === 'adaptive'
-                  ? 'bg-white text-[#0A0A0C]'
-                  : 'text-[#A1A1AA] hover:text-white'
-              }`}
-            >
-              المشغل السريع
-            </button>
-            <button
-              type="button"
-              onClick={() => setPlayerMode('direct')}
-              className={`px-3 py-1.5 rounded-md text-xs font-display font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
-                playerMode === 'direct'
-                  ? 'bg-white text-[#0A0A0C]'
-                  : 'text-[#A1A1AA] hover:text-white'
-              }`}
-            >
-              {episode.subtitles.length > 0 && (
-                <Subtitles className="w-3.5 h-3.5" aria-hidden="true" />
-              )}
-              <span>مشغل مباشر {episode.subtitles.length > 0 ? '+ ترجمة' : ''}</span>
-            </button>
-          </div>
+          {canUseDirectMode && (
+            <div className="hidden md:inline-flex items-center p-1 rounded-lg bg-[#141418] border border-white/[0.08]">
+              <button
+                type="button"
+                onClick={() => setPlayerMode('adaptive')}
+                className={`px-3 py-1.5 rounded-md text-xs font-display font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+                  playerMode === 'adaptive'
+                    ? 'bg-white text-[#0A0A0C]'
+                    : 'text-[#A1A1AA] hover:text-white'
+                }`}
+              >
+                المشغل السريع
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlayerMode('direct')}
+                className={`px-3 py-1.5 rounded-md text-xs font-display font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap cursor-pointer ${
+                  playerMode === 'direct'
+                    ? 'bg-white text-[#0A0A0C]'
+                    : 'text-[#A1A1AA] hover:text-white'
+                }`}
+              >
+                {episode.subtitles.length > 0 && (
+                  <Subtitles className="w-3.5 h-3.5" aria-hidden="true" />
+                )}
+                <span>مشغل مباشر {episode.subtitles.length > 0 ? '+ ترجمة' : ''}</span>
+              </button>
+            </div>
+          )}
 
           <button
             type="button"
@@ -320,7 +302,6 @@ export const EpisodePlayerModal: React.FC<EpisodePlayerModalProps> = ({
               allowFullScreen
               className="w-full h-full border-0"
             />
-            {/* Mask Google Drive's top-right pop-out corner button so viewers stay inside CinemaDrive */}
             <div
               className="absolute top-0 right-0 w-16 h-16 bg-transparent z-10"
               aria-hidden="true"
@@ -357,7 +338,7 @@ export const EpisodePlayerModal: React.FC<EpisodePlayerModalProps> = ({
               onEnded={handleVideoEnded}
               onError={() =>
                 setDirectError(
-                  'المتصفح لا يدعم تشغيل هذا الملف مباشرة (قد يكون بصيغة MKV أو كبير الحجم). بدّل إلى «المشغل السريع» للمشاهدة فوراً.'
+                  'المتصفح لا يدعم تشغيل هذا الملف مباشرة. بدّل إلى «المشغل السريع» للمشاهدة فوراً.'
                 )
               }
               className="w-full h-full max-h-full bg-black"
@@ -373,7 +354,6 @@ export const EpisodePlayerModal: React.FC<EpisodePlayerModalProps> = ({
               ))}
             </video>
 
-            {/* Playback Speed Control Overlay */}
             <div className="absolute top-4 left-4 flex items-center gap-1 p-1 rounded-lg bg-black/75 border border-white/[0.12] backdrop-blur-sm">
               {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
                 <button
@@ -485,15 +465,17 @@ export const EpisodePlayerModal: React.FC<EpisodePlayerModalProps> = ({
             <span>{isWatched ? 'تمت المشاهدة' : 'تحديد كمشاهدة'}</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() =>
-              setPlayerMode((prev) => (prev === 'adaptive' ? 'direct' : 'adaptive'))
-            }
-            className="md:hidden h-9 px-3 rounded-md bg-[#141418] border border-white/[0.1] text-xs font-medium text-[#D4D4D8] cursor-pointer"
-          >
-            {playerMode === 'adaptive' ? 'مشغل مباشر' : 'المشغل السريع'}
-          </button>
+          {canUseDirectMode && (
+            <button
+              type="button"
+              onClick={() =>
+                setPlayerMode((prev) => (prev === 'adaptive' ? 'direct' : 'adaptive'))
+              }
+              className="md:hidden h-9 px-3 rounded-md bg-[#141418] border border-white/[0.1] text-xs font-medium text-[#D4D4D8] cursor-pointer"
+            >
+              {playerMode === 'adaptive' ? 'مشغل مباشر' : 'المشغل السريع'}
+            </button>
+          )}
         </div>
 
         {/* Prev / Next Episode Navigation */}
