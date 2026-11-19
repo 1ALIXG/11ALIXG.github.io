@@ -351,10 +351,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             <div id="github-publish" className="space-y-3 border-t border-white/[0.1] pt-6">
               <span className="font-mono-num text-sm font-semibold text-[#E50914]">02</span>
               <h3 className="font-display text-lg font-bold text-white">
-                نشر دائم على الدومين الرئيسي (<span className="font-mono-num">public/series.json</span>)
+                نشر دائم على الدومين الرئيسي (<span className="font-mono-num">docs/series.json</span>)
               </h3>
               <p className="text-sm text-[#A1A1AA] leading-relaxed">
-                اضغط «تحميل ملف series.json» من نافذة المشاركة وضعه داخل مجلد <span className="font-mono-num text-[#E4E4E7]">public/</span> في مستودع GitHub. بمجرد الرفع سيعمل GitHub Actions تلقائياً ويفتح دومينك الرئيسي مباشرة على واجهة المسلسل!
+                اضغط «تحميل series.json» من نافذة المشاركة واستبدل به الملف داخل مجلد <span className="font-mono-num text-[#E4E4E7]">docs/</span> في مستودع GitHub، وفعّل GitHub Pages من مجلد <span className="font-mono-num text-[#E4E4E7]">/docs</span> ليفتح دومينك الرئيسي مباشرة على المسلسل!
               </p>
             </div>
           </div>

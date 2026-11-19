@@ -406,7 +406,7 @@ export const ShareModal: React.FC<ShareModalProps> = ({
                   تريد أن يفتح دومينك الرئيسي مباشرة على المسلسل بدون رابط طويل؟
                 </p>
                 <p className="text-xs text-[#A1A1AA] leading-relaxed">
-                  حمّل ملف <span className="font-mono-num text-white">series.json</span> واستبدل به الملف الموجود داخل <span className="font-mono-num text-white">public/series.json</span> في مستودع GitHub — بعدها أي شخص يزور دومينك سيدخل للمسلسل مباشرة!
+                  حمّل ملف <span className="font-mono-num text-white">series.json</span> واستبدل به الملف الموجود داخل <span className="font-mono-num text-white">docs/series.json</span> في مستودع GitHub — بعدها أي شخص يزور دومينك سيدخل للمسلسل مباشرة!
                 </p>
               </div>
               <button
